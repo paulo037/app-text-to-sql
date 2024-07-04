@@ -8,7 +8,7 @@ schema_path = "schemas/schema_en.sql"
 schema = open(schema_path, "r").read()
 
 
-db_path = "/home/paulo/D/ufv/mestrado/pesquisa/cnpj"
+db_path = "/home/paulo/D/ufv/mestrado/pesquisa/cnpj/db_en.sqlite"
 model = "models/Q8_0.gguf"
 llm = LLM("models/Q8_0.gguf", db_path)
 
