@@ -14,6 +14,7 @@ model = "models/phi_Q8_0.gguf"
 llm = LLM(model, db_path)
 gemini = Gemini()
 
+
 def text_to_sql(question, model_name):
     messages = [
         {
