@@ -6,6 +6,10 @@ from typing_extensions import TypedDict
 from langchain_community.utilities.sql_database import SQLDatabase
 import re
 import sqlite3
+import google.generativeai as genai
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 
 class GraphState(TypedDict):
@@ -240,4 +244,34 @@ class LLM():
         else:
             sql = self.app.invoke(state).get('sql', ';')
         return sql
+
+
+
+class Gemini():
+    def __init__(self):
+        genai.configure(api_key=os.getenv("GOOGLE_API"))
+        self.llm = genai.GenerativeModel(model_name="gemini-1.5-flash-latest")
+        self.template = open("gemini_prompt.txt", "r").read()
+
+    def __call__(self, messages):
+        question = ""
+        schema = ""
+
+        for message in messages:
+            if message["role"] == "user":
+                question = message["content"]
+            elif message["role"] == "schema":
+                schema = message["content"]
+
+        prompt = self.template.format(schema=schema, question=question)
+
+        try:
+            response = self.llm.generate_content(prompt)
+            sql_blocks = re.findall(r'```sql(.*?)```', response.text, re.DOTALL)
+           
+            return sql_blocks[-1].strip() if sql_blocks else ""
+
+        except Exception as e:
+            return str(e)
+        
 

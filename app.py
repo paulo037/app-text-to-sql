@@ -2,18 +2,19 @@ import gradio as gr
 import sqlite3
 import pandas as pd
 import time
-from llm import LLM
+from llm import LLM, Gemini
 
 schema_path = "schemas/schema_en.sql"
 schema = open(schema_path, "r").read()
 
 
 db_path = "/home/paulo/D/ufv/mestrado/pesquisa/cnpj/db_en.sqlite"
-model = "models/Q8_0.gguf"
-llm = LLM("models/Q8_0.gguf", db_path)
+model = "models/phi_Q8_0.gguf"
 
+llm = LLM(model, db_path)
+gemini = Gemini()
 
-def text_to_sql(question):
+def text_to_sql(question, model_name):
     messages = [
         {
             "role": "schema",
@@ -23,9 +24,12 @@ def text_to_sql(question):
             "role": "user",
             "content": question
         }]
-    sql_query = llm(messages)
 
-    # Conectar ao banco de dados SQLite (substitua pelo seu banco de dados)
+    if model_name == "Gemini":
+        sql_query = gemini(messages)
+    else:
+        sql_query = llm(messages)
+
     conn = sqlite3.connect(db_path)
     try:
         df = pd.read_sql_query(sql_query, conn)
@@ -34,16 +38,16 @@ def text_to_sql(question):
         df = pd.DataFrame()
     
     conn.close()
-
+    
     return sql_query, df
 
 
 
-def submit_question(question, result_table, progress=gr.Progress()):
+def submit_question(question, model_name, progress=gr.Progress()):
     progress((0, 2), "Gerando SQL...")
     time.sleep(1)  # Simular tempo de processamento
 
-    sql_query, df = text_to_sql(question)
+    sql_query, df = text_to_sql(question, model_name)
 
     progress((1, 2), "Executando Query...")
     time.sleep(2)  # Simular tempo de processamento
@@ -68,6 +72,17 @@ def generate_plot(df, x_col, y_col, plot_type):
         scatter_plot = gr.ScatterPlot(value=df, x=x_col, y=y_col, visible=True)
 
     return line_plot, bar_plot, scatter_plot
+
+def update_columns(df):
+            columns = df.columns.tolist()
+
+            v1 = columns[0] if len(columns) > 0 else None
+            v2 = columns[1] if len(columns) > 1 else v1
+
+            x_col, y_col = gr.Dropdown(choices=columns, value=v1), gr.Dropdown(
+                choices=columns, value=v2)
+
+            return x_col, y_col
 
 # Interface Gradio
 
@@ -104,23 +119,26 @@ def create_interface():
             flex-direction: column;
         }
     """) as demo:
-        gr.Markdown("# Aplicação Text-to-SQL")
-
+        gr.Markdown("# Aplicação Text-to-SQL")  
+        
         with gr.Row():
             with gr.Column():
                 question = gr.Textbox(
                     label="Pergunta", placeholder="Digite sua pergunta aqui...")
             with gr.Column():
-                sql_output = gr.Textbox(label="SQL Gerado", interactive=False)
+                model_name = gr.Radio(label="Modelo", choices=[
+                                    "Gemini", "Modelo Menor"], value="Gemini")
 
         with gr.Row():
             submit_button = gr.Button("Submeter")
 
-        result_table = gr.Dataframe(
-            label="Resultados da Consulta", interactive=False, height=300, visible=True)
+        with gr.Row():
+            sql_output = gr.Textbox(label="SQL Gerado", interactive=False)
 
-        submit_button.click(submit_question, inputs=[question, result_table], outputs=[
-                            sql_output, result_table])
+        with gr.Row():
+            result_table = gr.Dataframe(
+                label="Resultados da Consulta", interactive=False, height=300, visible=True)
+
 
         with gr.Row():
             x_col = gr.Dropdown(label="Coluna X", choices=[], interactive=True)
@@ -135,22 +153,16 @@ def create_interface():
             scatter_plot = gr.ScatterPlot(
                 label="Gráfico de Dispersão", visible=False)
 
-        def update_columns(df):
-            columns = df.columns.tolist()
-
-            v1 = columns[0] if len(columns) > 0 else None
-            v2 = columns[1] if len(columns) > 1 else v1
-
-            x_col, y_col = gr.Dropdown(choices=columns, value=v1), gr.Dropdown(
-                choices=columns, value=v2)
-
-            return x_col, y_col
+        submit_button.click(submit_question, inputs=[question, model_name], outputs=[
+                            sql_output, result_table])
 
         result_table.change(update_columns, inputs=[
                             result_table], outputs=[x_col, y_col])
 
         generate_button.click(generate_plot, inputs=[
                               result_table, x_col, y_col, plot_type], outputs=[line_plot, bar_plot, scatter_plot])
+    
+        
 
     return demo
 

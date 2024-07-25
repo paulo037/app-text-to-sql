@@ -1,0 +1,70 @@
+Instruction:
+You will be provided with a user question, the schema of a database along with two sample rows from each table.
+Your task is to transform the provided SQL query into a chain of thought, with the final step being the SQL query itself. This chain of thought should clearly explain the reasoning process step-by-step.
+
+Input:
+User Question: {question}
+Schema:
+{schema}
+
+Final SQL Query:
+```sql
+
+```
+
+### Example (Note that the user's question may require a different number of steps):
+User Question: What are the names of all employees in the 'Sales' department?
+Schema:
+
+CREATE TABLE employees (
+  employee_id INTEGER PRIMARY KEY,
+  first_name TEXT NOT NULL,
+  last_name TEXT NOT NULL,
+  department_id INTEGER NOT NULL,
+  FOREIGN KEY (department_id) REFERENCES departments(department_id)
+);
+
+/*
+2 rows from employees table:
+employee_id  first_name  last_name  department_id
+1            John         Doe          2
+2            Jane         Smith        1
+*/
+
+CREATE TABLE departments (
+  department_id INTEGER PRIMARY KEY,
+  department_name TEXT NOT NULL
+);
+
+
+/*
+2 rows from departments table:
+department_id  department_name
+1               Sales
+2               Engineering
+*/
+
+
+### Chain of Thought:
+1. Identify the relevant tables needed to answer the question. In this case, we need information from the 'employees' and 'departments' tables.
+2. Determine the necessary columns to include in the final output. Here, we need 'first_name' and 'last_name' from the 'employees' table.
+3. Understand the condition specified in the question, which is to filter employees by the 'Sales' department. This means we need to filter rows in the 'departments' table where 'department_name' equals 'Sales'.
+4. Establish the connection between the 'employees' and 'departments' tables. This is done using the 'department_id' column present in both tables.
+5. Formulate the SQL query by selecting the desired columns and applying the necessary join and filter conditions.
+
+Final SQL Query: 
+
+```sql
+SELECT first_name, last_name
+FROM employees e JOIN departments d ON e.department_id = d.department_id
+WHERE d.department_name = 'Sales';
+```
+
+### Now, it's your turn:
+
+User Question: {question}
+Schema:
+
+{schema}
+
+### Chain of Thought:
