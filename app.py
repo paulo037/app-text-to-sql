@@ -3,12 +3,17 @@ from streamlit_option_menu import option_menu
 import sqlite3
 import pandas as pd
 from llm import LLM, Gemini
+import os
 
-schema_path = "schemas/schema_en.sql"
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+
+
+schema_path = os.path.join(script_dir, "schemas/schema_en.sql")
 schema = open(schema_path, "r").read()
-log_db_path = "log.db"
-db_path = "..."
-model = "models/phi_Q8_0.gguf"
+log_db_path =  os.path.join(script_dir,"log.db")
+db_path =  os.path.join(script_dir, "...")
+model =  os.path.join(script_dir, "models/phi_Q8_0.gguf")
 
 llm = LLM(model, db_path)
 gemini = Gemini(db_path)

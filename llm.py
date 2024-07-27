@@ -11,7 +11,9 @@ import os
 from dotenv import load_dotenv
 from  pprint import pprint
 load_dotenv()
+import os
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
 
 class GraphState(TypedDict):
     """
@@ -233,8 +235,8 @@ class Gemini():
     def __init__(self, db_path):
         genai.configure(api_key=os.getenv("GOOGLE_API"))
         self.model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest")
-        self.gen_template = open("templates/gemini_gen_template.txt", "r").read()
-        self.fix_template = open("templates/gemini_fix_template.txt", "r").read()
+        self.gen_template = open(os.path.join(script_dir,"templates/gemini_gen_template.txt"), "r").read()
+        self.fix_template = open(os.path.join(script_dir,"templates/gemini_fix_template.txt"), "r").read()
         
         self.db = Sqlite(db_path)
         self.app = build_app()
