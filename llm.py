@@ -9,6 +9,7 @@ import sqlite3
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
+from  pprint import pprint
 load_dotenv()
 
 
@@ -31,6 +32,7 @@ class GraphState(TypedDict):
     error: str
     sql: str
     attempts: int
+    path: List[dict]
 
 
 def generate_sql(state):
@@ -57,16 +59,9 @@ def generate_sql(state):
 
     llm = state["llm"]
 
-    args = {
-        "temperature": 0.2,
-        "top_p": 0.95,
-        "max_tokens": 300,
-        "stop": ["[/SQL]", "<|end|>"],
-        "top_k": 10,
-    }
-
-
-    sql = llm.create_chat_completion(messages, **args)['choices'][0]['message']['content']
+    sql = llm(messages)
+    
+    state["sql"] = sql
 
     messages.append({"role": "assistant", "content": sql})
     state["messages"] = messages
@@ -77,48 +72,10 @@ def generate_sql(state):
         state["attempts"] = 1
     else:
         state["attempts"] += 1
+
+    state['path'].append({'node': 'generate_sql', 'output': sql})
     return state
 
-
-def sanatize_sql(state):
-    """
-    Sanitizes the SQL query.
-
-    Args:
-        state (dict): The current graph state.
-
-    Returns:
-        state (dict): Now with a sanitized SQL query.
-    """
-
-    pattern = r"\[SQL\](.*?)\[/SQL\]"
-
-    messages = state["messages"]
-
-    sql = messages[-1]['content']
-
-    matches = re.findall(pattern, sql, re.DOTALL)
-    if matches:
-        sql = matches[-1]
-    else:
-        sql = ";"
-
-    if sql == ";":
-        pattern = r"SELECT(.*?)\;"
-
-        messages = state["messages"]
-
-        sql = messages[-1]['content']
-
-        matches = re.findall(pattern, sql, re.DOTALL)
-        if matches:
-            sql = "SELECT " + matches[-1] + ";"
-        else:
-            sql = ";"
-
-    state["sql"] = sql
-
-    return state
 
 def run_sql(state):
     """
@@ -140,13 +97,17 @@ def run_sql(state):
             state["output"] = out
         else:
             state["output"] = [{}]
+
+        state['path'].append({'node': 'run_sql', 'output': 'ok'})
     except Exception as e:
         state["error"] = str(e.args[0]) if e.args else str(e)
+        state['path'].append({'node': 'run_sql', 'output': state["error"]})
         state["messages"].append({"role": "sqlite", "content": state["error"]})
 
     return state
 
 # Edges
+
 
 def stop_or_retry(state):
     """
@@ -162,10 +123,14 @@ def stop_or_retry(state):
     max_attempts = 3
 
     if state["error"] and state["attempts"] < max_attempts:
+        state['path'].append(
+            {'node': 'stop_or_retry', 'output': 'generate_sql'})
         return "generate_sql"
 
     if state["error"] and state["attempts"] >= max_attempts:
         state["sql"] = ";"
+
+    state['path'].append({'node': 'stop_or_retry', 'output': 'stop'})
     return "stop"
 
 
@@ -176,102 +141,148 @@ class Sqlite():
     def run(self, sql, include_columns=True):
 
         try:
-          conn = sqlite3.connect(self.db_path)
-          cursor = conn.cursor()
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
 
         except:
-          cursor.execute("PRAGMA foreign_keys = OFF;")
+            cursor.execute("PRAGMA foreign_keys = OFF;")
         cursor.execute("EXPLAIN " + sql)
         cursor.close()
         conn.close()
 
 
-workflow = StateGraph(GraphState)
+def build_app():
+    workflow = StateGraph(GraphState)
 
-# Define the nodes
-workflow.add_node("generate_sql", generate_sql)
-workflow.add_node("sanatize_sql", sanatize_sql)
-workflow.add_node("run_sql", run_sql)
+    # Define the nodes
+    workflow.add_node("generate_sql", generate_sql)
+    workflow.add_node("run_sql", run_sql)
 
-# Build graph
-workflow.set_entry_point("generate_sql")
-workflow.add_edge("generate_sql", "sanatize_sql")
-workflow.add_edge("sanatize_sql", "run_sql")
-workflow.add_conditional_edges(
-    "run_sql",
-    stop_or_retry,
-    {
-        "generate_sql": "generate_sql",
-        "stop": END,
-    },
-)
+    # Build graph
+    workflow.set_entry_point("generate_sql")
+    workflow.add_edge("generate_sql", "run_sql")
+    workflow.add_conditional_edges(
+        "run_sql",
+        stop_or_retry,
+        {
+            "generate_sql": "generate_sql",
+            "stop": END,
+        },
+    )
+    
+    return workflow.compile()
+
+
+class SQLGenerator():
+    def __init__(self, model, _call):
+        self.model = model
+        self._call = _call
+
+    def __call__(self, messages):
+        return self._call(self.model, messages)
 
 
 class LLM():
     def __init__(self, model_path, db_path):
         self.model = Llama(model_path=model_path, n_ctx=4096)
         self.db = Sqlite(db_path)
-        self.app = workflow.compile()
+        self.app = build_app()
 
     def __call__(self, messages):
+
+        def _call(model: Llama, messages):
+            args = {
+                "temperature": 0.2,
+                "top_p": 0.95,
+                "max_tokens": 300,
+                "stop": ["[/SQL]", "<|end|>"],
+                "top_k": 10,
+            }
+
+            sql = model.create_chat_completion(
+                messages, **args)['choices'][0]['message']['content']
+
+            pattern = r"SELECT(.*?)\;"
+
+            matches = re.findall(pattern, sql, re.DOTALL)
+            if matches:
+                sql = "SELECT " + matches[-1] + ";"
+            else:
+                sql = ";"
+            return sql
+
         state = {
-            "llm": self.model,
+            "llm": SQLGenerator(self.model, _call),
             "db": self.db,
             "messages": messages,
             "output": [],
             "error": None,
             "sql": None,
-            "attempts": 0
+            "attempts": 0,
+            "path": []
         }
 
-        if True:
-            for output in self.app.stream(state):
-                for key, value in output.items():
-                    print("=" * 30)
-                    print(key)
-                    print("-" * 30)
-                    if key == "generate_sql":
-                        print(value["messages"][-1]["content"])
-                    elif key == "sanatize_sql":
-                        print(value["sql"])
-                    elif key == "run_sql":
-                        print(
-                            value["output"] if not value["error"] else value["error"])
-                    print("=" * 30)
-
-            sql = value.get('sql', ';')
-
-        else:
-            sql = self.app.invoke(state).get('sql', ';')
-        return sql
-
+        state = self.app.invoke(state)
+        
+        pprint(state['path'])
+        
+        return state.get('sql', ';')
 
 
 class Gemini():
-    def __init__(self):
+    def __init__(self, db_path):
         genai.configure(api_key=os.getenv("GOOGLE_API"))
-        self.llm = genai.GenerativeModel(model_name="gemini-1.5-flash-latest")
-        self.template = open("gemini_prompt.txt", "r").read()
+        self.model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest")
+        self.gen_template = open("templates/gemini_gen_template.txt", "r").read()
+        self.fix_template = open("templates/gemini_fix_template.txt", "r").read()
+        
+        self.db = Sqlite(db_path)
+        self.app = build_app()
 
     def __call__(self, messages):
-        question = ""
-        schema = ""
+        def _call(model, messages):
+            question, schema, error, assistant = "", "", "", ""
 
-        for message in messages:
-            if message["role"] == "user":
-                question = message["content"]
-            elif message["role"] == "schema":
-                schema = message["content"]
+            for message in messages:
+                if message["role"] == "user":
+                    question = message["content"]
+                elif message["role"] == "schema":
+                    schema = message["content"]
+                elif message["role"] == "assistant":
+                    assistant = message["content"]
+                elif message["role"] == "sqlite":
+                    error = message["content"]
 
-        prompt = self.template.format(schema=schema, question=question)
+            if not error:
+                prompt = self.gen_template.format(
+                    schema=schema, question=question)
+            else:
+                prompt = self.fix_template.format(
+                    schema=schema, question=question, predicted=assistant, error=error)
 
-        try:
-            response = self.llm.generate_content(prompt)
-            sql_blocks = re.findall(r'```sql(.*?)```', response.text, re.DOTALL)
-           
-            return sql_blocks[-1].strip() if sql_blocks else ""
+            try:
+                response = model.generate_content(prompt)
+                sql_blocks = re.findall(
+                    r'```sql(.*?)```', response.text, re.DOTALL)
 
-        except Exception as e:
-            return str(e)
+                return sql_blocks[-1].strip() if sql_blocks else ""
+
+            except Exception as e:
+                return str(e)
+
+        state = {
+            "llm": SQLGenerator(self.model, _call),
+            "db": self.db,
+            "messages": messages,
+            "output": [],
+            "error": None,
+            "sql": None,
+            "attempts": 0,
+            "path": []
+        }
+
+        state = self.app.invoke(state)
         
-
+        pprint(state['path'])
+        
+        return state.get('sql', ';')

@@ -1,6 +1,6 @@
 Instruction:
 You will be provided with a user question, the schema of a database along with two sample rows from each table.
-Your task is to transform the provided SQL query into a chain of thought, with the final step being the SQL query itself. This chain of thought should clearly explain the reasoning process step-by-step.
+Your task is to transform the provided user question into a chain of thought, with the final step being the SQL query itself. This chain of thought should clearly explain the reasoning process step-by-step.
 
 Input:
 User Question: {question}

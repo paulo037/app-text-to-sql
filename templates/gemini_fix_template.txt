@@ -1,0 +1,108 @@
+Instruction:
+You will be provided with a user question, the schema of a database along with two sample rows from each table, the SQL code previous produced, and finally the sqlite error.
+Your task is to fix the provided SQL query using a chain of thought, with the final step being the Corrected SQL query itself. This chain of thought should clearly explain the reasoning process step-by-step.
+
+Input:
+User Question: {question}
+Schema:
+{schema}
+
+SQL Query with Errors:
+```sql
+{predicted}
+```
+
+Sqlite Error:
+```python
+{error}
+```
+
+
+### Example (Note that the user's question may require a different number of steps):
+User Question: What are the names of all employees in the 'Sales' department?
+Schema:
+
+CREATE TABLE employees (
+  employee_id INTEGER PRIMARY KEY,
+  first_name TEXT NOT NULL,
+  last_name TEXT NOT NULL,
+  department_id INTEGER NOT NULL,
+  FOREIGN KEY (department_id) REFERENCES departments(department_id)
+);
+
+/*
+2 rows from employees table:
+employee_id  first_name  last_name  department_id
+1            John         Doe          2
+2            Jane         Smith        1
+*/
+
+CREATE TABLE departments (
+  department_id INTEGER PRIMARY KEY,
+  department_name TEXT NOT NULL
+);
+
+
+/*
+2 rows from departments table:
+department_id  department_name
+1               Sales
+2               Engineering
+*/
+
+
+SQL Query with Errors:
+```sql
+SELECT first_name, last_name
+FROM employees
+WHERE department_name = 'Sales';
+```
+
+Sqlite Error:
+```python
+no such column: department_name
+```
+
+### Chain of Thought to Fix the Query:
+
+1. **Identify the tables involved:** 
+   - The `employees` table contains the employees' first and last names.
+   - The `departments` table contains the department names.
+
+2. **Analyze the incorrect SQL:**
+   - The `employees` table does not have a `department_name` column.
+   - We need to use the `department_id` to join the `employees` table with the `departments` table.
+
+3. **Determine the correct relationship:**
+   - The `department_id` in the `employees` table should match the `department_id` in the `departments` table.
+   - We need to filter the results where `department_name` is 'Sales'.
+
+4. **Construct the JOIN clause:**
+   - Use an INNER JOIN to combine the `employees` and `departments` tables on the `department_id`.
+
+Final SQL Query: 
+
+```sql
+SELECT e.first_name, e.last_name
+FROM employees e
+INNER JOIN departments d ON e.department_id = d.department_id
+WHERE d.department_name = 'Sales';
+```
+
+### Now, it's your turn:
+
+User Question: {question}
+Schema:
+{schema}
+
+SQL Query with Errors:
+```sql
+{predicted}
+```
+
+Sqlite Error:
+```python
+{error}
+```
+
+### Chain of Thought to Fix the Query:

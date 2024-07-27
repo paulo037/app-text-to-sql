@@ -11,8 +11,8 @@ schema = open(schema_path, "r").read()
 db_path = "/home/paulo/D/ufv/mestrado/pesquisa/cnpj/db_en.sqlite"
 model = "models/phi_Q8_0.gguf"
 
-llm = LLM(model, db_path)
-gemini = Gemini()
+# llm = LLM(model, db_path)
+gemini = Gemini(db_path)
 
 
 def text_to_sql(question, model_name):
@@ -42,8 +42,6 @@ def text_to_sql(question, model_name):
     
     return sql_query, df
 
-
-
 def submit_question(question, model_name, progress=gr.Progress()):
     progress((0, 2), "Gerando SQL...")
     time.sleep(1)  # Simular tempo de processamento
@@ -54,11 +52,10 @@ def submit_question(question, model_name, progress=gr.Progress()):
     time.sleep(2)  # Simular tempo de processamento
 
     progress((2, 2), "Concluído")
+    
+    df = df.head(100)
 
     return sql_query, gr.Dataframe(df, visible=True)
-
-# Função para gerar gráfico com as colunas selecionadas
-
 
 def generate_plot(df, x_col, y_col, plot_type):
     line_plot = gr.LinePlot(None, None, None, visible=False)
@@ -75,15 +72,15 @@ def generate_plot(df, x_col, y_col, plot_type):
     return line_plot, bar_plot, scatter_plot
 
 def update_columns(df):
-            columns = df.columns.tolist()
+    columns = df.columns.tolist()
 
-            v1 = columns[0] if len(columns) > 0 else None
-            v2 = columns[1] if len(columns) > 1 else v1
+    v1 = columns[0] if len(columns) > 0 else None
+    v2 = columns[1] if len(columns) > 1 else v1
 
-            x_col, y_col = gr.Dropdown(choices=columns, value=v1), gr.Dropdown(
-                choices=columns, value=v2)
+    x_col, y_col = gr.Dropdown(choices=columns, value=v1), gr.Dropdown(
+        choices=columns, value=v2)
 
-            return x_col, y_col
+    return x_col, y_col
 
 # Interface Gradio
 
@@ -170,4 +167,4 @@ def create_interface():
 
 # Cria e lança a interface
 demo = create_interface()
-demo.launch()
+demo.launch(server_name="0.0.0.0", port=5000)
