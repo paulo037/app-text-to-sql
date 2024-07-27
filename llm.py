@@ -226,7 +226,7 @@ class LLM():
         
         pprint(state['path'])
         
-        return state.get('sql', ';')
+        return state['path'], state.get('sql', ';')
 
 
 class Gemini():
@@ -285,4 +285,4 @@ class Gemini():
         
         pprint(state['path'])
         
-        return state.get('sql', ';')
+        return state['path'], state.get('sql', ';')

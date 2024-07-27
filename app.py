@@ -1,18 +1,39 @@
-import gradio as gr
+import streamlit as st
+from streamlit_option_menu import option_menu 
 import sqlite3
 import pandas as pd
-import time
 from llm import LLM, Gemini
 
 schema_path = "schemas/schema_en.sql"
 schema = open(schema_path, "r").read()
-
-
-db_path = "/home/paulo/D/ufv/mestrado/pesquisa/cnpj/db_en.sqlite"
+log_db_path = "log.db"
+db_path = "..."
 model = "models/phi_Q8_0.gguf"
 
-# llm = LLM(model, db_path)
+llm = LLM(model, db_path)
 gemini = Gemini(db_path)
+
+import json
+
+def log_query_to_db(question, sql_query, path, model_name):
+    conn = sqlite3.connect(log_db_path)
+    cursor = conn.cursor()
+
+    cursor.execute("INSERT INTO queries_log (question, sql_query, path, model_name) VALUES (?, ?, ?, ?)",
+                   (question, sql_query, json.dumps(path), model_name))
+    conn.commit()
+    conn.close()
+
+def update_feedback_in_db(question, feedback, rating):
+    conn = sqlite3.connect(log_db_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE queries_log
+        SET feedback = ?, rating = ?
+        WHERE question = ?
+    """, (feedback, rating, question))
+    conn.commit()
+    conn.close()
 
 
 def text_to_sql(question, model_name):
@@ -27,9 +48,9 @@ def text_to_sql(question, model_name):
         }]
 
     if model_name == "Gemini":
-        sql_query = gemini(messages)
+        path, sql_query = gemini(messages)
     else:
-        sql_query = llm(messages)
+        path, sql_query = llm(messages)
 
     conn = sqlite3.connect(db_path)
     try:
@@ -37,134 +58,97 @@ def text_to_sql(question, model_name):
     except Exception as e:
         print(e)
         df = pd.DataFrame()
-    
+
     conn.close()
-    
-    return sql_query, df
 
-def submit_question(question, model_name, progress=gr.Progress()):
-    progress((0, 2), "Gerando SQL...")
-    time.sleep(1)  # Simular tempo de processamento
+    return sql_query, df, path
 
-    sql_query, df = text_to_sql(question, model_name)
+def main():
+    st.set_page_config(page_title="LLM App", layout="wide")
 
-    progress((1, 2), "Executando Query...")
-    time.sleep(2)  # Simular tempo de processamento
+    # Initialize session state to hold the DataFrame and SQL query
+    if 'df' not in st.session_state:
+        st.session_state.df = pd.DataFrame()
+    if 'sql_query' not in st.session_state:
+        st.session_state.sql_query = ""
+    if 'path' not in st.session_state:
+        st.session_state.path = []
+    if 'question' not in st.session_state:
+        st.session_state.question = ""
 
-    progress((2, 2), "Concluído")
-    
-    df = df.head(100)
+    with st.sidebar:
+        selected = option_menu("Menu", ["Chat", "Gráficos", "Ver Schema"],
+                               icons=["chat", "bar-chart", "database"],
+                               menu_icon="menu-hamburger", default_index=0,
+                               styles={
+                                   "container": {"padding": "0!important", "background-color": "rgb(38 39 48)"},
+                                   "icon": {"color": "#FFFFFF"},
+                                   "nav-link": {"font-size": "16px", "text-align": "left", "margin": "0px", "--hover-color": "#08c"},
+                                   "nav-link-selected": {"background-color": "#08c"}
+                               })
 
-    return sql_query, gr.Dataframe(df, visible=True)
+    if selected == "Chat":
+        st.header("Chat")
+        question = st.text_input("Pergunta", placeholder="Digite sua pergunta aqui...")
 
-def generate_plot(df, x_col, y_col, plot_type):
-    line_plot = gr.LinePlot(None, None, None, visible=False)
-    bar_plot = gr.LinePlot(None, None, None, visible=False)
-    scatter_plot = gr.LinePlot(None, None, None, visible=False)
+        model_name = st.radio("Modelo", ["Gemini", "Modelo Menor"], index=0, key="model_name", horizontal=True)
 
-    if plot_type == "Linha":
-        line_plot = gr.LinePlot(value=df, x=x_col, y=y_col, visible=True)
-    elif plot_type == "Barra":
-        bar_plot = gr.BarPlot(value=df, x=x_col, y=y_col, visible=True)
-    elif plot_type == "Dispersão":
-        scatter_plot = gr.ScatterPlot(value=df, x=x_col, y=y_col, visible=True)
+        if st.button("Submeter"):
+            with st.spinner('Gerando SQL...'):
+                sql_query, df, path = text_to_sql(question, model_name)
+                st.session_state.sql_query = sql_query  # Save the SQL query to session state
+                st.session_state.df = df  # Save the dataframe to session state
+                st.session_state.path = path  # Save the path to session state
+                st.session_state.question = question  # Save the question to session state
+                st.success('Concluído')
 
-    return line_plot, bar_plot, scatter_plot
+                # Log the query to the database
+                log_query_to_db(question, sql_query, path, model_name)
 
-def update_columns(df):
-    columns = df.columns.tolist()
+        # Display the SQL query and DataFrame if they exist in session state
+        if st.session_state.sql_query:
+            st.subheader("SQL Gerado")
+            st.code(st.session_state.sql_query, language='sql')
+        if not st.session_state.df.empty:
+            st.subheader("Resultados da Consulta")
+            st.dataframe(st.session_state.df.head(100))
 
-    v1 = columns[0] if len(columns) > 0 else None
-    v2 = columns[1] if len(columns) > 1 else v1
+        feedback = st.text_input("Feedback", placeholder="Digite seu feedback aqui...")
+        rating = st.radio("Avaliação", ["👍", "👎"], index=0, horizontal=True)
+        if st.button("Enviar feedback"):
+            update_feedback_in_db(st.session_state.question, feedback, rating == "👍")
+            st.write("Feedback enviado! Obrigado.")
 
-    x_col, y_col = gr.Dropdown(choices=columns, value=v1), gr.Dropdown(
-        choices=columns, value=v2)
+    elif selected == "Gráficos":
+        st.header("Gráficos")
 
-    return x_col, y_col
+        if not st.session_state.df.empty:
+            st.write("Selecione as colunas e o tipo de gráfico")
 
-# Interface Gradio
+            c1, c2 = st.columns(2)
 
+            with c1:
+                x_col = st.selectbox("Coluna X", st.session_state.df.columns)
+            with c2:
+                y_col = st.selectbox("Coluna Y", st.session_state.df.columns)
 
-def create_interface():
-    with gr.Blocks(css="""
-        body { 
-            font-family: Arial, sans-serif; 
-            background-color: #f4f4f9;
-            color: #333;
-            margin: 0;
-            padding: 20px;
-        }
-        .gr-blocks { 
-            max-width: 800px; 
-            margin: auto; 
-            padding: 20px;
-            background: white;
-            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
-            border-radius: 10px;
-        }
-        .gr-textbox, .gr-button, .gr-dataframe, .gr-markdown, .gr-progress { 
-            margin-bottom: 20px;
-        }
-        .gr-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 20px;
-        }
-        .gr-center {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            flex-direction: column;
-        }
-    """) as demo:
-        gr.Markdown("# Aplicação Text-to-SQL")  
-        
-        with gr.Row():
-            with gr.Column():
-                question = gr.Textbox(
-                    label="Pergunta", placeholder="Digite sua pergunta aqui...")
-            with gr.Column():
-                model_name = gr.Radio(label="Modelo", choices=[
-                                    "Gemini", "Modelo Menor"], value="Gemini")
+            plot_type = st.radio("Tipo de Gráfico", ["Linha", "Barra", "Dispersão"], horizontal=True)
 
-        with gr.Row():
-            submit_button = gr.Button("Submeter")
+            if st.button("Gerar Gráfico"):
+                if plot_type == "Linha":
+                    st.line_chart(st.session_state.df, x=x_col, y=y_col)
+                elif plot_type == "Barra":
+                    st.bar_chart(st.session_state.df, x=x_col, y=y_col)
+                elif plot_type == "Dispersão":
+                    st.scatter_chart(st.session_state.df, x=x_col, y=y_col)
+        else:
+            st.write("Por favor, faça uma consulta na aba 'Chat' para carregar os dados.")
 
-        with gr.Row():
-            sql_output = gr.Textbox(label="SQL Gerado", interactive=False)
+    elif selected == "Ver Schema":
+        st.header("Schema do Banco de Dados")
+        st.markdown(f"```\n{schema}\n```")
 
-        with gr.Row():
-            result_table = gr.Dataframe(
-                label="Resultados da Consulta", interactive=False, height=300, visible=True)
+if __name__ == "__main__":
+    main()
 
 
-        with gr.Row():
-            x_col = gr.Dropdown(label="Coluna X", choices=[], interactive=True)
-            y_col = gr.Dropdown(label="Coluna Y", choices=[], interactive=True)
-            plot_type = gr.Radio(label="Tipo de Gráfico", choices=[
-                                 "Linha", "Barra", "Dispersão"], value="Linha")
-            generate_button = gr.Button("Gerar Gráfico")
-
-        with gr.Row():
-            line_plot = gr.LinePlot(label="Gráfico de Linha", visible=False)
-            bar_plot = gr.BarPlot(label="Gráfico de Barra", visible=False)
-            scatter_plot = gr.ScatterPlot(
-                label="Gráfico de Dispersão", visible=False)
-
-        submit_button.click(submit_question, inputs=[question, model_name], outputs=[
-                            sql_output, result_table])
-
-        result_table.change(update_columns, inputs=[
-                            result_table], outputs=[x_col, y_col])
-
-        generate_button.click(generate_plot, inputs=[
-                              result_table, x_col, y_col, plot_type], outputs=[line_plot, bar_plot, scatter_plot])
-    
-        
-
-    return demo
-
-
-# Cria e lança a interface
-demo = create_interface()
-demo.launch(server_name="0.0.0.0", port=5000)
