@@ -9,7 +9,7 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 
 
 
-schema_path = os.path.join(script_dir, "schemas/schema_en.sql")
+schema_path = os.path.join(script_dir, "schemas/schema_en_with_examples.sql")
 schema = open(schema_path, "r").read()
 log_db_path =  os.path.join(script_dir,"log.db")
 db_path =  os.path.join(script_dir, "...")
